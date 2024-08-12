@@ -1,5 +1,9 @@
 package com.harena.api.service;
 
+import static java.lang.StringTemplate.STR;
+import static java.nio.file.Files.createTempDirectory;
+import static java.nio.file.Files.createFile;
+
 import com.harena.api.exception.InternalServerErrorException;
 import com.harena.api.exception.NotFoundException;
 import com.harena.api.file.BucketComponent;
@@ -19,7 +23,10 @@ import school.hei.patrimoine.modele.Patrimoine;
 import school.hei.patrimoine.serialisation.Serialiseur;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable;
+import java.lang.StringTemplate.Processor;
 
 @Log
 @Service
@@ -35,22 +42,26 @@ public class PatrimoineService {
     try {
       patrimoineFile =
           bucketComponent.download(PATRIMOINE_KEY_PREFIX + StringNormalizer.apply(patrimoineName));
+    } catch (NoSuchKeyException e) {
+      throw new NotFoundException(STR."Patrimoine \{patrimoineName} not found");
+    } catch (S3Exception e) {
+      throw new InternalServerErrorException(STR."Error accessing S3 for patrimoine \{patrimoineName}: \{e.getMessage()}");
     } catch (Exception e) {
-      throw new NotFoundException(String.format("Patrimoine %s not found", patrimoineName));
+      throw new InternalServerErrorException(STR."Unexpected error while retrieving patrimoine \{patrimoineName}: \{e.getMessage()}");
     }
 
     try {
       return serializer.deserialise(Files.readString(patrimoineFile.toPath()));
     } catch (IOException | ClassCastException e) {
       throw new InternalServerErrorException(
-          String.format("Could not read values of patrimoine %s", patrimoineName));
+              STR."Could not read values of patrimoine \{patrimoineName}");
     }
   }
 
   public List<Patrimoine> savePatrimoines(List<Patrimoine> toSavePatrimoines) {
     try {
-      Path tempDir = Files.createTempDirectory("harena-api-toSavePatrimoines");
-      toSavePatrimoines.forEach((patrimoine) -> writeFile(tempDir, patrimoine));
+      Path tempDir = createTempDirectory("harena-api-toSavePatrimoines");
+      toSavePatrimoines.forEach(patrimoine -> writeFile(tempDir, patrimoine));
 
       bucketComponent.upload(tempDir.toFile(), PATRIMOINE_KEY_PREFIX);
     } catch (IOException e) {
@@ -61,7 +72,7 @@ public class PatrimoineService {
 
   public List<Patrimoine> getAllPatrimoine(PageRequest pageRequest) {
     List<File> patrimoineFiles = new ArrayList<>();
-    ListObjectsV2Request lsRequest =
+    var lsRequest =
         ListObjectsV2Request.builder()
             .bucket(bucketComponent.getBucketName())
             .prefix(PATRIMOINE_KEY_PREFIX)
@@ -76,9 +87,7 @@ public class PatrimoineService {
         objects
             .contents()
             .forEach(
-                file -> {
-                  patrimoineFiles.add(bucketComponent.download(file.key()));
-                });
+                    file -> patrimoineFiles.add(bucketComponent.download(file.key())));
       }
     }
 
@@ -89,7 +98,7 @@ public class PatrimoineService {
                 return serializer.deserialise(Files.readString(file.toPath()));
               } catch (IOException e) {
                 throw new InternalServerErrorException(
-                    String.format("Cannot read %s", file.getName()));
+                        STR."Cannot read \{file.getName()}");
               }
             })
         .toList();
@@ -97,7 +106,7 @@ public class PatrimoineService {
 
   private void writeFile(Path parentDir, Patrimoine patrimoine) {
     try {
-      Path filePath = Files.createFile(parentDir.resolve(StringNormalizer.apply(patrimoine.nom())));
+      Path filePath = createFile(parentDir.resolve(StringNormalizer.apply(patrimoine.nom())));
       Files.writeString(filePath, serializer.serialise(patrimoine));
     } catch (IOException e) {
       throw new InternalServerErrorException("Unable to save all objects");

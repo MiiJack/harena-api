@@ -35,7 +35,7 @@ class PatrimoineServiceIT extends FacadeIT {
     when(bucketComponent.download(any())).thenReturn(tempFile.toFile());
     when(bucketComponent.upload(any(), any())).thenReturn(new FileHash(NONE, "hash"));
 
-    assertFalse(subject.getAllPatrimoine(PageRequest.of(1, 1)).isEmpty());
+    assertFalse(subject.getAllPatrimoine(PageRequest.of(4, 10)).isEmpty());
     assertDoesNotThrow(
         () -> {
           subject.getPatrimone("test");
